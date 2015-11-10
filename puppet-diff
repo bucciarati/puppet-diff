@@ -1,0 +1,64 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+
+
+my $usage = <<END_OF_USAGE;
+    Examples:
+
+      $0 \$filename # show available MD5s
+      $0 \$filename 5de559ba2ccee7e94b857e97108606c8 # diff between currently active version and 5de559ba2ccee7e94b857e97108606c8
+END_OF_USAGE
+
+my ($filename, $wanted_md5) = @ARGV;
+
+if ( !$filename ){
+  die $usage;
+}
+
+if ( !$wanted_md5 ){
+  my $puppet_log = '/var/log/puppet/puppetd.log';
+  my @puppet_changes_to_file = qx( sudo grep -w "$filename" "$puppet_log" );
+  chomp @puppet_changes_to_file;
+
+  if ( !@puppet_changes_to_file ){
+    die "Cannot grep for '$filename' in $puppet_log";
+  }
+
+  my @md5s = map {
+    /^(....-..-.. ..:..:..) .* content changed '\{md5\}([0-9a-f]{32})' to '\{md5\}([0-9a-f]{32})'$/
+      ? [$1, $2, $3]
+      : '(none)'
+  } @puppet_changes_to_file;
+
+  # print Dumper [@puppet_changes_to_file, @md5s];
+
+  if ( @md5s > 1 ){
+    print "Add the MD5 you're looking for to this script's arguments:\n";
+    for my $md5 ( @md5s ){
+      print "  $md5->[0]\t$md5->[1] -> $md5->[2]\n"
+    }
+
+    print "\n";
+    die $usage;
+  } elsif ( @md5s == 1 ) {
+    $wanted_md5 = $md5s[0]->[-1];
+  }
+}
+
+my $puppet_filebucket_path =
+  '/var/lib/puppet/clientbucket/'
+  . (join '/', split //, substr($wanted_md5, 0, 8))
+  . "/$wanted_md5"
+  . '/contents';
+
+# print $puppet_filebucket_path;
+
+my @command = (qw( sudo diff -u ), $puppet_filebucket_path, $filename);
+
+# print Dumper \@command;
+
+system @command;
